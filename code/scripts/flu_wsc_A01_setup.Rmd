@@ -1,0 +1,252 @@
+---
+title: "Import Files"
+output:
+  html_document:
+    code_folding: hide
+    fig_caption: yes
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: yes
+params:
+  NamedId: 
+    value: A03
+---
+
+# Setup
+```{r setup, }
+#clear
+  knitr::opts_chunk$set(warning = F, message = F)
+  source('P:\\flun1\\k1m\\vanish_mdro\\flutrends\\flutrends_cfg.R')
+```
+
+```{r config}
+#--FileName Identifier
+  NamedId <- params$NamedId
+
+#--Packages to be loaded
+  #my Package; install_github("kmcconeghy/Scotty")
+  Packages <- Param$Packages %>%
+   dplyr::filter(CodeFileId==ConfigFileId | CodeFileId==NamedId) %>%
+   pull(PackageName)
+   library(Packages[[1]], character.only = T) #Need to load my package first
+  Scotty::load_pkgs(Packages, quietly=T)
+  
+#--Pull FileNames from param
+  FileNames <- Param$FileNames[Param$FileNames$CodeFileId==NamedId,]
+  
+#--CodeFileName  
+  File.Dir.Src <- list.files(wd.CodeFiles, '.Rmd')
+  File.Dir.Curr <- str_detect(File.Dir.Src, NamedId)
+  CodeFileName <- File.Dir.Src[File.Dir.Curr]
+```
+*Documented created* `r Sys.time()`  
+
+## Description  
+Take the generated SAS files, prepare for R with some formatting.  
+
+#### Codefile Name:  (Confirm with title and directory file)  
+Codefile: `r CodeFileName`  
+
+#### Packages:    
+The following packages are called and attached (and dependencies): 
+`r Packages`  
+
+#### Used Files:  
+```{r }
+  tab_files(FileNames)
+```
+
+## Incidence Cohort  
+### Load dataset  
+```{r }
+df_inc <- haven::read_sas(paste0(wd.DataFiles, '//', FileNames[1, '1']))
+```
+
+### Test of file  
+
+#### Key variables:  
+```{r }
+key_vars <- c('bene_id_18900', 
+              'long_stdt', 
+              'long_endt', 
+              'facility', 
+              'age_at_admit')
+
+testthat::expect_true(all(key_vars %in% names(df_inc))==T)
+```
+
+#### Dates:  
+```{r }
+## Dates correct
+testthat::expect_is(df_inc$long_stdt, 'Date')
+testthat::expect_is(df_inc$long_endt, 'Date')
+```
+
+#### Unique patients only  
+```{r }
+##
+testthat::expect_equal(nrow(df_inc), nrow(dplyr::distinct(df_inc, bene_id_18900)))
+```
+Since I am only keeping first stay, there should be no duplicates by bene_id_18900.  
+
+```{r, eval=FALSE}
+df_inc %>%
+  group_by(bene_id_18900) %>%
+  dplyr::filter(row_number()>1)
+```
+
+#### Timeline correct  
+```{r }
+testthat::test_that("Timeframe is correct", {
+  testthat::expect_lte(as.numeric(max(df_inc$long_stdt)), as.numeric(ymd('2015-12-31')))
+  testthat::expect_gte(as.numeric(min(df_inc$long_endt)), as.numeric(ymd('2011-01-01')))
+})
+
+```
+
+ * No admit date > 2015-12-31    
+ * No dc date < 2011-01-01  
+ 
+### Edit File  
+
+#### Compute index date   
+```{r }
+  df_inc3 <- df_inc %>%
+    mutate(index = long_stdt+100)
+```
+
+### Save Incidence Dataset  
+```{r }
+write_feather(df_inc3, paste0(wd.DataFiles, '//', FileNames[2, '1']))
+feather_metadata(paste0(wd.DataFiles, '//', FileNames[2, '1']))
+```
+
+## Claims file  
+### Load dataset  
+```{r }
+df_clm <- haven::read_sas(paste0(wd.DataFiles, '//', FileNames[1, '2']))
+```
+
+### Test of file  
+
+#### Key variables:  
+```{r }
+key_vars <- c('bene_id_18900', 'hiadmdt', 'hidiag0')
+
+testthat::expect_true(all(key_vars %in% names(df_clm))==T)
+```
+
+#### Dates:  
+```{r }
+## Dates correct
+testthat::expect_is(df_clm$hiadmdt, 'Date')
+```
+
+#### Timeline correct  
+```{r }
+testthat::test_that("Timeframe is correct", {
+  testthat::expect_gte(as.numeric(min(df_clm$hiadmdt)), as.numeric(ymd('2010-01-01')))
+  testthat::expect_lte(as.numeric(max(df_clm$hiadmdt)), as.numeric(ymd('2016-12-31')))
+})
+```
+
+### Save Claims Dataset  
+```{r }
+write_feather(df_clm, paste0(wd.DataFiles, '//', FileNames[2, '2']))
+feather_metadata(paste0(wd.DataFiles, '//', FileNames[2, '2']))
+```
+
+## MDS dataasets     
+### Load dataset  
+```{r }
+df_mds <- haven::read_sas(paste0(wd.DataFiles, '//', FileNames[1, '3']))
+```
+
+#### Key variables:  
+```{r }
+key_vars <- c('bene_id_18900', 'dmdate', 'dmtype', 'M3A0310A', 'accpt_id', 'M3A2100')
+
+testthat::expect_true(all(key_vars %in% names(df_mds))==T)
+```
+
+#### Dates:  
+```{r }
+## Dates correct
+testthat::expect_is(df_mds$dmdate, 'Date')
+```
+
+#### Timeline correct  
+```{r }
+testthat::test_that("Timeframe is correct", {
+  testthat::expect_gte(as.numeric(min(df_mds$dmdate)), as.numeric(ymd('2010-01-01')))
+  testthat::expect_lte(as.numeric(max(df_mds$dmdate)), as.numeric(ymd('2015-12-31')))
+})
+```
+
+### Save MDS dataset  
+```{r, }
+write_feather(df_mds, paste0(wd.DataFiles, '//', as.character(FileNames[2, '3'])))
+feather_metadata(paste0(wd.DataFiles, '//', FileNames[2, '3']))
+```
+
+## CASPAR dataasets     
+### Load dataset  
+```{r }
+df_caspar <- haven::read_sas(paste0(wd.DataFiles, '//', FileNames[1, '4'])) %>%
+  rename(accpt_id = ACCPT_ID) %>%
+  mutate(srvydate = as_date(srvydate, origin=ymd('1960-01-01'))) 
+```
+
+#### Key variables:  
+```{r }
+key_vars <- c('accpt_id', 'srvydate', 'nhlong', 'nhlat')
+
+testthat::expect_true(all(key_vars %in% names(df_caspar))==T)
+```
+
+#### Dates:  
+```{r }
+## Dates correct
+testthat::expect_is(df_caspar$srvydate, 'Date')
+```
+
+#### Timeline correct  
+```{r }
+testthat::test_that("Timeframe is correct", {
+  testthat::expect_gte(as.numeric(max(df_caspar$srvydate)), as.numeric(ymd('2013-01-01')))
+})
+```
+
+### Save CASPAR dataset  
+```{r, }
+write_feather(df_caspar, paste0(wd.DataFiles, '//', 
+                             as.character(FileNames[2, '4'])))
+feather_metadata(paste0(wd.DataFiles, '//', FileNames[2, '4']))
+```
+
+## NH list     
+### Load dataset  
+```{r }
+df_list <- haven::read_sas(paste0(wd.DataFiles, '//', FileNames[1, '5'])) %>%
+  rename(accpt_id = ACCPT_ID) %>%
+  mutate(vacc_13_14 = factor(vacc_13_14, levels=c('SD', 'HD'), labels = c('Standard-dose', 'High-Dose')),
+         vacc_14_15 = factor(vacc_14_15, levels=c('SD', 'HD'), labels = c('Standard-dose', 'High-Dose'))) %>%
+  select(accpt_id, vacc_13_14, vacc_14_15)
+```
+
+### Save Flutrends list dataset  
+```{r, }
+write_feather(df_list, paste0(wd.DataFiles, '//', 
+                             as.character(FileNames[2, '5'])))
+feather_metadata(paste0(wd.DataFiles, '//', FileNames[2, '5']))
+```
+
+## Session Info  
+```{r, }
+sessioninfo::session_info()[[1]]
+```
+
+```{r }
+datatable(sessioninfo::session_info()[[2]])
+```
